@@ -5,9 +5,10 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
+import '../providers/auth_provider.dart';
 import '../providers/detection_provider.dart';
 
-/// Page d'accueil principale - Design moderne épuré
+/// Page d'accueil principale - Design moderne épuré avec profil utilisateur
 class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
@@ -20,7 +21,8 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final historyAsync = ref.watch(detectionHistoryProvider);
+    final authState = ref.watch(authStateProvider);
+    final user = authState.user;
 
     return Scaffold(
       backgroundColor: AppColors.backgroundDark,
@@ -32,9 +34,9 @@ class _HomePageState extends ConsumerState<HomePage> {
           bottom: false,
           child: CustomScrollView(
             slivers: [
-              // App Bar personnalisée
+              // App Bar avec profil utilisateur
               SliverToBoxAdapter(
-                child: _buildHeader(context),
+                child: _buildHeader(context, user?.fullName ?? user?.username ?? 'Utilisateur'),
               ),
 
               // Hero Section
@@ -54,11 +56,11 @@ class _HomePageState extends ConsumerState<HomePage> {
           ),
         ),
       ),
-      bottomNavigationBar: _buildBottomNavigationBar(context),
+      bottomNavigationBar: _buildBottomNavigationBar(context, user),
     );
   }
 
-  Widget _buildBottomNavigationBar(BuildContext context) {
+  Widget _buildBottomNavigationBar(BuildContext context, user) {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.cardDark,
@@ -72,7 +74,7 @@ class _HomePageState extends ConsumerState<HomePage> {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -82,7 +84,17 @@ class _HomePageState extends ConsumerState<HomePage> {
                 isSelected: _selectedIndex == 0,
                 onTap: () => setState(() => _selectedIndex = 0),
               ),
-             
+              
+              _NavBarItem(
+                icon: Icons.history_rounded,
+                label: 'Historique',
+                isSelected: _selectedIndex == 1,
+                onTap: () {
+                  setState(() => _selectedIndex = 1);
+                  context.push(AppRoutes.history);
+                },
+              ),
+              
               // Floating Action Button au centre
               _FloatingCameraButton(
                 onTap: () => context.push(AppRoutes.camera),
@@ -91,10 +103,21 @@ class _HomePageState extends ConsumerState<HomePage> {
               _NavBarItem(
                 icon: Icons.settings_rounded,
                 label: 'Réglages',
+                isSelected: _selectedIndex == 2,
+                onTap: () {
+                  setState(() => _selectedIndex = 2);
+                  context.push(AppRoutes.settings);
+                },
+              ),
+              
+              // Profil utilisateur dans la nav
+              _NavBarProfile(
+                initials: user?.initials ?? 'U',
+                label: 'Profil',
                 isSelected: _selectedIndex == 3,
                 onTap: () {
                   setState(() => _selectedIndex = 3);
-                  context.push(AppRoutes.settings);
+                  context.go(AppRoutes.profile);
                 },
               ),
             ],
@@ -104,76 +127,75 @@ class _HomePageState extends ConsumerState<HomePage> {
     );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, String userName) {
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Logo et titre
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppColors.accentBlue.withOpacity(0.3),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: Icon(
-                  Icons.analytics_rounded,
-                  color: Colors.white,
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'HeadCount',
-                    style: TextStyle(
-                      color: AppColors.textPrimary,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                    ),
+          // Salutation avec nom d'utilisateur
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _getGreeting(),
+                  style: TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
-                  Text(
-                    'Smart Detection',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  userName,
+                  style: TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: -0.5,
                   ),
-                ],
-              ),
-            ],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
           ),
 
-          // Notification button
-          _HeaderIconButton(
-            icon: Icons.notifications_rounded,
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Aucune notification'),
-                  backgroundColor: AppColors.accentBlue,
-                  behavior: SnackBarBehavior.floating,
+          // Logo
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              gradient: AppColors.primaryGradient,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.accentBlue.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
                 ),
-              );
-            },
+              ],
+            ),
+            child: Icon(
+              Icons.analytics_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
           ),
         ],
       ),
     );
+  }
+
+  String _getGreeting() {
+    final hour = DateTime.now().hour;
+    if (hour < 12) {
+      return 'Hello 👋';
+    } else if (hour < 18) {
+      return 'Bon après-midi 👋';
+    } else {
+      return 'Bonsoir 👋';
+    }
   }
 
   Widget _buildHeroSection(BuildContext context) {
@@ -388,7 +410,7 @@ class _NavBarItem extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
             color: isSelected
                 ? AppColors.accentBlue.withOpacity(0.15)
@@ -401,7 +423,84 @@ class _NavBarItem extends StatelessWidget {
               Icon(
                 icon,
                 color: isSelected ? AppColors.accentBlue : AppColors.textSecondary,
-                size: 24,
+                size: 22,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? AppColors.accentBlue : AppColors.textSecondary,
+                  fontSize: 10,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavBarProfile extends StatelessWidget {
+  final String initials;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _NavBarProfile({
+    required this.initials,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? AppColors.accentBlue.withOpacity(0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  gradient: isSelected 
+                      ? AppColors.primaryGradient 
+                      : LinearGradient(
+                          colors: [
+                            AppColors.textSecondary,
+                            AppColors.textSecondary.withOpacity(0.8),
+                          ],
+                        ),
+                  shape: BoxShape.circle,
+                  border: isSelected 
+                      ? Border.all(color: AppColors.accentBlue, width: 2)
+                      : null,
+                ),
+                child: Center(
+                  child: Text(
+                    initials,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -482,7 +581,7 @@ class _HeaderIconButton extends StatelessWidget {
           child: Icon(
             icon,
             color: AppColors.accentBlue,
-            size: 22,
+            size: 20,
           ),
         ),
       ),
