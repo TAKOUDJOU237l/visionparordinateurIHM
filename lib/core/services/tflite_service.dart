@@ -13,46 +13,55 @@ class TFLiteService {
   Interpreter? _interpreter;
   bool _isInitialized = false;
   String _currentModel = 'mobilenet';
+  bool _useGpu = true; // Tente d'utiliser le GPU par défaut
 
   /// Initialise le service avec le modèle local
-  Future<void> initialize({String model = 'mobilenet'}) async {
+  Future<void> initialize({String model = 'mobilenet', bool? useGpu}) async {
+    // Si useGpu est spécifié, on met à jour le flag
+    if (useGpu != null) {
+      _useGpu = useGpu;
+    }
+
     if (_isInitialized && _currentModel == model) return;
 
     try {
       print(' Initialisation du service de détection...');
-      
+
       _currentModel = model;
-      
+
       // Copier le modèle depuis les assets vers un fichier temporaire
       final modelPath = await _loadModelFromAssets();
-      
+
       print('Chargement du modèle depuis: $modelPath');
-      
+
       // Options pour l'interpréteur
       final options = InterpreterOptions()..threads = 4;
-      
-      // Ajouter le délégué GPU/NNAPI si disponible
-      if (Platform.isAndroid) {
+
+      // Ajouter le délégué GPU si demandé et disponible
+      if (Platform.isAndroid && _useGpu) {
         try {
           options.addDelegate(GpuDelegateV2());
           print('✓ GPU delegate activé');
         } catch (e) {
           print('⚠ GPU non disponible, utilisation du CPU');
+          _useGpu = false;
         }
+      } else {
+        print('ℹ️ Mode CPU activé');
       }
-      
+
       // Charger le modèle
-      _interpreter = await Interpreter.fromFile(
+      _interpreter = Interpreter.fromFile(
         File(modelPath),
         options: options,
       );
-      
+
       _isInitialized = true;
       print(' Modèle MobileNet SSD chargé avec succès!');
-      
+
       // Afficher les informations du modèle
       _printModelInfo();
-      
+
     } catch (e) {
       print(' Erreur lors de l\'initialisation: $e');
       _isInitialized = false;
@@ -153,45 +162,70 @@ class TFLiteService {
   ) async {
     // Redimensionner l'image à 300x300 (input de MobileNet SSD)
     final resized = img.copyResize(image, width: 300, height: 300);
-    
+
     // Convertir en tenseur uint8 [1, 300, 300, 3]
     final inputBytes = _imageToByteListUint8(resized, 300);
-    
+
     // Préparer les outputs
     // MobileNet SSD quantized a 4 outputs:
     // Output 0: Locations [1, 10, 4] - coordonnées des bounding boxes
     // Output 1: Classes [1, 10] - identifiants des classes
     // Output 2: Scores [1, 10] - scores de confiance
     // Output 3: Number of detections [1] - nombre de détections
-    final outputLocations = List.generate(1, (_) => 
-      List.generate(10, (_) => List.filled(4, 0.0))
+    final outputLocations = List.generate(
+      1,
+      (_) => List.generate(10, (_) => List.filled(4, 0.0)),
     );
     final outputClasses = List.generate(1, (_) => List.filled(10, 0.0));
     final outputScores = List.generate(1, (_) => List.filled(10, 0.0));
     final numDetections = List.filled(1, 0.0);
-    
+
     final outputs = {
       0: outputLocations,
       1: outputClasses,
       2: outputScores,
       3: numDetections,
     };
-    
-    // Exécuter l'inférence
-    _interpreter!.runForMultipleInputs([inputBytes], outputs);
-    
+
+    // Exécuter l'inférence avec fallback CPU si GPU échoue
+    try {
+      _interpreter!.runForMultipleInputs([inputBytes], outputs);
+    } catch (e) {
+      // Si le GPU delegate échoue, on réinitialise en mode CPU
+      if (_useGpu) {
+        print('⚠️ GPU delegate a échoué, basculement vers CPU...');
+        print('   Erreur: $e');
+
+        // Fermer l'interpréteur actuel
+        _interpreter?.close();
+        _interpreter = null;
+        _isInitialized = false;
+
+        // Réinitialiser en mode CPU
+        _useGpu = false;
+        await initialize(model: _currentModel, useGpu: false);
+
+        // Réessayer l'inférence en mode CPU
+        print('🔄 Réessai de l\'inférence en mode CPU...');
+        _interpreter!.runForMultipleInputs([inputBytes], outputs);
+      } else {
+        // Déjà en mode CPU, propager l'erreur
+        rethrow;
+      }
+    }
+
     // Extraire les détections de personnes
     final detections = <BoundingBoxModel>[];
     final numDet = numDetections[0].toInt().clamp(0, 10);
-    
+
     print('   Nombre de détections brutes: $numDet');
-    
+
     for (int i = 0; i < numDet; i++) {
       final score = outputScores[0][i];
       final classId = outputClasses[0][i].toInt();
-      
+
       print('   Détection $i: classe=$classId, score=${score.toStringAsFixed(2)}');
-      
+
       // Classe 0 = personne dans COCO dataset
       if (classId == 0 && score >= minConfidence) {
         // Les coordonnées sont normalisées [0, 1] dans l'ordre [ymin, xmin, ymax, xmax]
@@ -199,7 +233,7 @@ class TFLiteService {
         final x1 = outputLocations[0][i][1];
         final y2 = outputLocations[0][i][2];
         final x2 = outputLocations[0][i][3];
-        
+
         detections.add(BoundingBoxModel(
           x: x1.clamp(0.0, 1.0),
           y: y1.clamp(0.0, 1.0),
@@ -207,11 +241,13 @@ class TFLiteService {
           height: (y2 - y1).clamp(0.0, 1.0),
           confidence: score,
         ));
-        
-        print('   ✓ Personne détectée avec confiance ${(score * 100).toStringAsFixed(1)}%');
+
+        print(
+          '   ✓ Personne détectée avec confiance ${(score * 100).toStringAsFixed(1)}%',
+        );
       }
     }
-    
+
     return detections;
   }
 
